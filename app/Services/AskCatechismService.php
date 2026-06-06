@@ -2,13 +2,18 @@
 
 namespace App\Services;
 
-use App\Exceptions\OllamaUnavailableException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 class AskCatechismService
 {
-    private const REFUSAL_ANSWER = 'I can only answer questions related to Catholic faith, prayer, Scripture, sacraments, saints, and the Catechism of the Catholic Church.';
+    private const SUCCESS_MESSAGE = 'Response generated.';
+
+    private const FALLBACK_MESSAGE = 'Ask Catechism AI is temporarily unavailable. Please try again later.';
+
+    private const FALLBACK_ANSWER = 'Ask Catechism AI is temporarily unavailable. You may still explore the Prayer Library, Daily Reflection, Rosary Guide, and Confession Guide. Please try again later.';
+
+    private const REFUSAL_ANSWER = 'I’m here to help with Catholic faith, prayer, Scripture, Sacraments, saints, devotions, and spiritual guidance. Please ask a Catholic-related question.';
 
     private const DEVELOPER_ANSWER = 'Sanctum was developed by Donard Osol Lleno, a Bachelor of Science in Computer Science student from North Eastern Mindanao State University – Main Campus. He served as the Developer and System Integrator of Sanctum, working on the Flutter mobile application, Laravel backend integration, user progress tracking, and Catholic-centered app features. For inquiries, he may be contacted through donardlleno3@gmail.com or dolleno@nemsu.edu.ph.';
 
@@ -98,9 +103,7 @@ class AskCatechismService
     ];
 
     /**
-     * @return array{answer: string, source: string, references: array<int, string>}
-     *
-     * @throws OllamaUnavailableException
+     * @return array{success: bool, message: string, data: array{answer: string, source: string, references: array<int, string>}}
      */
     public function answer(string $question): array
     {
@@ -109,21 +112,20 @@ class AskCatechismService
         }
 
         if (! $this->isCatholicRelated($question)) {
-            return [
-                'answer' => self::REFUSAL_ANSWER,
-                'source' => 'filter',
-                'references' => [],
-            ];
+            return $this->buildSuccessResponse(self::REFUSAL_ANSWER, 'catholic_filter', []);
         }
 
         $context = $this->resolveContext($question);
-        $answer = $this->askOllama($question, $context);
 
-        return [
-            'answer' => $answer,
-            'source' => 'ollama',
-            'references' => $context['references'],
-        ];
+        $answer = $this->getAiAnswer($question, $context);
+
+        if (is_string($answer) && trim($answer) !== '') {
+            $source = $this->usesGemini() ? 'gemini' : 'ollama';
+
+            return $this->buildSuccessResponse(trim($answer), $source, $context['references']);
+        }
+
+        return $this->buildFallbackResponse();
     }
 
     private function isDeveloperQuestion(string $question): bool
@@ -145,15 +147,11 @@ class AskCatechismService
     }
 
     /**
-     * @return array{answer: string, source: string, references: array<int, string>}
+     * @return array{success: bool, message: string, data: array{answer: string, source: string, references: array<int, string>}}
      */
     private function getDeveloperResponse(): array
     {
-        return [
-            'answer' => self::DEVELOPER_ANSWER,
-            'source' => 'developer_profile',
-            'references' => [],
-        ];
+        return $this->buildSuccessResponse(self::DEVELOPER_ANSWER, 'developer_profile', []);
     }
 
     private function isCatholicRelated(string $question): bool
@@ -204,6 +202,23 @@ class AskCatechismService
         ];
     }
 
+    private function usesGemini(): bool
+    {
+        return trim((string) config('services.gemini.api_key')) !== '';
+    }
+
+    /**
+     * @param  array{summaries: array<int, string>, references: array<int, string>, has_specific_context: bool}  $context
+     */
+    private function getAiAnswer(string $question, array $context): ?string
+    {
+        if ($this->usesGemini()) {
+            return $this->askGemini($question, $context);
+        }
+
+        return $this->askOllama($question, $context);
+    }
+
     /**
      * @param  array<int, string>  $keywords
      */
@@ -220,10 +235,53 @@ class AskCatechismService
 
     /**
      * @param  array{summaries: array<int, string>, references: array<int, string>, has_specific_context: bool}  $context
-     *
-     * @throws OllamaUnavailableException
      */
-    private function askOllama(string $question, array $context): string
+    private function askGemini(string $question, array $context): ?string
+    {
+        $apiKey = trim((string) config('services.gemini.api_key'));
+        $model = (string) config('services.gemini.model', 'gemini-1.5-flash');
+
+        if ($apiKey === '') {
+            return null;
+        }
+
+        $prompt = $this->buildGeminiPrompt($question, $context);
+
+        try {
+            $response = Http::timeout(30)
+                ->acceptJson()
+                ->post("https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}", [
+                    'contents' => [
+                        [
+                            'parts' => [
+                                [
+                                    'text' => $prompt,
+                                ],
+                            ],
+                        ],
+                    ],
+                ]);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        $content = data_get($response->json(), 'candidates.0.content.parts.0.text');
+
+        if (! is_string($content) || trim($content) === '') {
+            return null;
+        }
+
+        return trim($content);
+    }
+
+    /**
+     * @param  array{summaries: array<int, string>, references: array<int, string>, has_specific_context: bool}  $context
+     */
+    private function askOllama(string $question, array $context): ?string
     {
         $baseUrl = rtrim((string) config('services.ollama.base_url'), '/');
         $model = (string) config('services.ollama.model');
@@ -239,7 +297,7 @@ class AskCatechismService
                     'messages' => [
                         [
                             'role' => 'system',
-                            'content' => $this->buildSystemPrompt(),
+                            'content' => $this->buildOllamaSystemPrompt(),
                         ],
                         [
                             'role' => 'user',
@@ -248,23 +306,60 @@ class AskCatechismService
                     ],
                 ]);
         } catch (\Throwable) {
-            throw new OllamaUnavailableException('Unable to connect to Ollama.');
+            return null;
         }
 
         if (! $response->successful()) {
-            throw new OllamaUnavailableException('Unable to connect to Ollama.');
+            return null;
         }
 
         $content = data_get($response->json(), 'message.content');
 
         if (! is_string($content) || trim($content) === '') {
-            throw new OllamaUnavailableException('Ollama returned an empty response.');
+            return null;
         }
 
         return trim($content);
     }
 
-    private function buildSystemPrompt(): string
+    private function buildGeminiPrompt(string $question, array $context): string
+    {
+        $summaryBlock = implode("\n", array_map(
+            fn (string $summary) => "- {$summary}",
+            $context['summaries']
+        ));
+
+        $referenceBlock = $context['references'] !== []
+            ? implode(', ', $context['references'])
+            : 'None provided in local context.';
+
+        return <<<PROMPT
+You are Sanctum Ask Catechism AI.
+
+You answer only Catholic-related questions.
+Use respectful, simple, pastoral, Catholic-friendly language.
+Keep answers concise and suitable for a mobile app.
+Do not answer unrelated questions.
+Do not claim to replace the Church, priests, catechists, confession, spiritual direction, or official Church authority.
+If the question involves serious personal, moral, or spiritual concerns, encourage the user to speak with a priest, catechist, or trusted Church authority.
+Avoid making unsupported claims.
+Do not provide non-Catholic religious instruction as if it is Catholic teaching.
+If unsure, say so respectfully.
+
+CCC CONTEXT:
+{$summaryBlock}
+
+CCC REFERENCES (use only these when citing paragraphs):
+{$referenceBlock}
+
+USER QUESTION:
+{$question}
+
+Respond with a concise Catholic answer and keep the tone pastoral.
+PROMPT;
+    }
+
+    private function buildOllamaSystemPrompt(): string
     {
         return <<<'PROMPT'
 You are Ask Catechism, a Catholic faith Q&A assistant inside the Sanctum app.
@@ -321,5 +416,37 @@ CCC REFERENCES (use only these when citing paragraphs):
 USER QUESTION:
 {$question}
 MESSAGE;
+    }
+
+    /**
+     * @return array{success: bool, message: string, data: array{answer: string, source: string, references: array<int, string>}}
+     */
+    private function buildSuccessResponse(string $answer, string $source, array $references): array
+    {
+        return [
+            'success' => true,
+            'message' => self::SUCCESS_MESSAGE,
+            'data' => [
+                'answer' => $answer,
+                'source' => $source,
+                'references' => array_values($references),
+            ],
+        ];
+    }
+
+    /**
+     * @return array{success: bool, message: string, data: array{answer: string, source: string, references: array<int, string>}}
+     */
+    private function buildFallbackResponse(): array
+    {
+        return [
+            'success' => false,
+            'message' => self::FALLBACK_MESSAGE,
+            'data' => [
+                'answer' => self::FALLBACK_ANSWER,
+                'source' => 'fallback',
+                'references' => [],
+            ],
+        ];
     }
 }

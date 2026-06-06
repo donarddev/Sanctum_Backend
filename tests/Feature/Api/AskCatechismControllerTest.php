@@ -21,9 +21,13 @@ class AskCatechismControllerTest extends TestCase
                 ->once()
                 ->with('Who developed Sanctum?')
                 ->andReturn([
-                    'answer' => 'Test developer response.',
-                    'source' => 'developer_profile',
-                    'references' => [],
+                    'success' => true,
+                    'message' => 'Response generated.',
+                    'data' => [
+                        'answer' => 'Test developer response.',
+                        'source' => 'developer_profile',
+                        'references' => [],
+                    ],
                 ]);
         });
 
