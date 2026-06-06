@@ -65,7 +65,7 @@ class AskCatechismServiceTest extends TestCase
                         'content' => [
                             'parts' => [
                                 [
-                                    'text' => 'Prayer is a conversation with God.',
+                                    'text' => 'Prayer is a conversation with God. It is rooted in Scripture and Catholic tradition. CCC 2558 and John 6:51 are relevant.',
                                 ],
                             ],
                         ],
@@ -81,8 +81,49 @@ class AskCatechismServiceTest extends TestCase
         $this->assertTrue($response['success']);
         $this->assertSame('Response generated.', $response['message']);
         $this->assertSame('gemini', $response['data']['source']);
-        $this->assertSame('Prayer is a conversation with God.', $response['data']['answer']);
+        $this->assertStringContainsString('SHORT ANSWER', $response['data']['answer']);
+        $this->assertStringContainsString('CATHOLIC EXPLANATION', $response['data']['answer']);
+        $this->assertStringContainsString('CATHOLIC REMINDER', $response['data']['answer']);
+        $this->assertStringContainsString('Prayer is a conversation with God. It is rooted in Scripture and Catholic tradition.', $response['data']['answer']);
+        $this->assertContains('CCC 2558', $response['data']['references']);
+        $this->assertContains('John 6:51', $response['data']['references']);
         Http::assertSentCount(1);
+    }
+
+    public function test_gemini_responses_are_wrapped_when_the_headings_are_missing(): void
+    {
+        config([
+            'services.gemini.api_key' => 'test-key',
+            'services.gemini.model' => 'gemini-1.5-flash',
+        ]);
+
+        Http::fake([
+            'https://generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [
+                    [
+                        'content' => [
+                            'parts' => [
+                                [
+                                    'text' => 'The Eucharist is the source and summit of the Christian life. CCC 1324 and John 6:51 are relevant.',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $service = new AskCatechismService();
+
+        $response = $service->answer('What is the Eucharist?');
+
+        $this->assertTrue($response['success']);
+        $this->assertSame('gemini', $response['data']['source']);
+        $this->assertStringStartsWith("SHORT ANSWER\n", $response['data']['answer']);
+        $this->assertStringContainsString('CATHOLIC EXPLANATION', $response['data']['answer']);
+        $this->assertStringContainsString('CATHOLIC REMINDER', $response['data']['answer']);
+        $this->assertContains('CCC 1324', $response['data']['references']);
+        $this->assertContains('John 6:51', $response['data']['references']);
     }
 
     public function test_gemini_failures_return_the_fallback_payload(): void

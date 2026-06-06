@@ -17,6 +17,12 @@ class AskCatechismService
 
     private const DEVELOPER_ANSWER = 'Sanctum was developed by Donard Osol Lleno, a Bachelor of Science in Computer Science student from North Eastern Mindanao State University – Main Campus. He served as the Developer and System Integrator of Sanctum, working on the Flutter mobile application, Laravel backend integration, user progress tracking, and Catholic-centered app features. For inquiries, he may be contacted through donardlleno3@gmail.com or dolleno@nemsu.edu.ph.';
 
+    private const SECTION_HEADINGS = [
+        'SHORT ANSWER',
+        'CATHOLIC EXPLANATION',
+        'CATHOLIC REMINDER',
+    ];
+
     private const DEVELOPER_KEYWORDS = [
         'who developed sanctum',
         'who developed this app',
@@ -121,8 +127,10 @@ class AskCatechismService
 
         if (is_string($answer) && trim($answer) !== '') {
             $source = $this->usesGemini() ? 'gemini' : 'ollama';
+            $references = $this->mergeReferences($context['references'], $answer);
+            $formattedAnswer = $this->normalizeCatholicAnswer($answer);
 
-            return $this->buildSuccessResponse(trim($answer), $source, $context['references']);
+            return $this->buildSuccessResponse($formattedAnswer, $source, $references);
         }
 
         return $this->buildFallbackResponse();
@@ -346,6 +354,33 @@ Avoid making unsupported claims.
 Do not provide non-Catholic religious instruction as if it is Catholic teaching.
 If unsure, say so respectfully.
 
+Always answer Catholic-related questions using exactly these three section headings:
+
+SHORT ANSWER
+CATHOLIC EXPLANATION
+CATHOLIC REMINDER
+
+Do not remove these headings.
+Do not answer in one paragraph.
+Do not use markdown bullets unless necessary.
+Keep the response concise and suitable for a mobile app.
+
+For SHORT ANSWER:
+- Give a direct answer.
+- If possible, connect the answer to Scripture.
+- Include a Bible verse reference when appropriate, such as John 20:23, Matthew 16:19, Luke 22:19, John 6:51, 1 Corinthians 11:24-25, or other relevant passages.
+- Do not force a Bible verse if it does not fit.
+
+For CATHOLIC EXPLANATION:
+- Explain the teaching according to Catholic faith.
+- Include Catechism of the Catholic Church references when appropriate.
+- Use the format CCC number, for example: CCC 1324, CCC 1374.
+
+For CATHOLIC REMINDER:
+- Always remind the user that Sanctum is for learning and reflection only.
+- For deeper spiritual, moral, or sacramental concerns, encourage the user to speak with a priest, catechist, or trusted Church authority.
+- Do not claim to replace confession, priests, catechists, spiritual direction, or Church authority.
+
 CCC CONTEXT:
 {$summaryBlock}
 
@@ -377,18 +412,59 @@ Rules:
 8. Do not replace a priest, confessor, catechist, doctor, therapist, or spiritual director.
 9. For personal confession, moral crisis, mental health, or emergency concerns, recommend speaking with a priest or trusted professional.
 
-Response format:
-Short Answer
-[answer]
+Always answer Catholic-related questions using exactly these three section headings:
 
-Catholic Explanation
-[explanation]
+SHORT ANSWER
+CATHOLIC EXPLANATION
+CATHOLIC REMINDER
 
-Catechism Reference
-[CCC references if available, otherwise say: Not available in the provided local context.]
+Do not remove these headings.
+Do not answer in one paragraph.
+Do not use markdown bullets unless necessary.
+Keep the response concise and suitable for a mobile app.
 
-Gentle Reminder
-[short pastoral reminder]
+For SHORT ANSWER:
+- Give a direct answer.
+- If possible, connect the answer to Scripture.
+- Include a Bible verse reference when appropriate, such as John 20:23, Matthew 16:19, Luke 22:19, John 6:51, 1 Corinthians 11:24-25, or other relevant passages.
+- Do not force a Bible verse if it does not fit.
+
+For CATHOLIC EXPLANATION:
+- Explain the teaching according to Catholic faith.
+- Include Catechism of the Catholic Church references when appropriate.
+- Use the format CCC number, for example: CCC 1324, CCC 1374.
+
+For CATHOLIC REMINDER:
+- Always remind the user that Sanctum is for learning and reflection only.
+- For deeper spiritual, moral, or sacramental concerns, encourage the user to speak with a priest, catechist, or trusted Church authority.
+- Do not claim to replace confession, priests, catechists, spiritual direction, or Church authority.
+
+Always answer Catholic-related questions using exactly these three section headings:
+
+SHORT ANSWER
+CATHOLIC EXPLANATION
+CATHOLIC REMINDER
+
+Do not remove these headings.
+Do not answer in one paragraph.
+Do not use markdown bullets unless necessary.
+Keep the response concise and suitable for a mobile app.
+
+For SHORT ANSWER:
+- Give a direct answer.
+- If possible, connect the answer to Scripture.
+- Include a Bible verse reference when appropriate, such as John 20:23, Matthew 16:19, Luke 22:19, John 6:51, 1 Corinthians 11:24-25, or other relevant passages.
+- Do not force a Bible verse if it does not fit.
+
+For CATHOLIC EXPLANATION:
+- Explain the teaching according to Catholic faith.
+- Include Catechism of the Catholic Church references when appropriate.
+- Use the format CCC number, for example: CCC 1324, CCC 1374.
+
+For CATHOLIC REMINDER:
+- Always remind the user that Sanctum is for learning and reflection only.
+- For deeper spiritual, moral, or sacramental concerns, encourage the user to speak with a priest, catechist, or trusted Church authority.
+- Do not claim to replace confession, priests, catechists, spiritual direction, or Church authority.
 PROMPT;
     }
 
@@ -448,5 +524,75 @@ MESSAGE;
                 'references' => [],
             ],
         ];
+    }
+
+    private function normalizeCatholicAnswer(string $answer): string
+    {
+        $trimmedAnswer = trim($answer);
+
+        if ($this->hasRequiredHeadings($trimmedAnswer)) {
+            return $this->normalizeHeadingSpacing($trimmedAnswer);
+        }
+
+        return $this->buildWrappedCatholicAnswer($trimmedAnswer);
+    }
+
+    private function hasRequiredHeadings(string $answer): bool
+    {
+        foreach (self::SECTION_HEADINGS as $heading) {
+            if (! Str::contains(Str::upper($answer), $heading)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function normalizeHeadingSpacing(string $answer): string
+    {
+        $normalized = preg_replace('/\r\n|\r/', "\n", $answer) ?? $answer;
+
+        foreach (self::SECTION_HEADINGS as $heading) {
+            $normalized = preg_replace('/' . preg_quote($heading, '/') . '\s*\n*/', $heading . "\n", $normalized) ?? $normalized;
+        }
+
+        return trim($normalized);
+    }
+
+    private function buildWrappedCatholicAnswer(string $answer): string
+    {
+        $answer = trim($answer);
+
+        return <<<ANSWER
+SHORT ANSWER
+{$answer}
+
+CATHOLIC EXPLANATION
+This answer is explained in the light of Catholic faith and teaching.
+
+CATHOLIC REMINDER
+Sanctum is for faith learning and reflection only. For deeper spiritual guidance, please speak with a priest, catechist, or trusted Church authority.
+ANSWER;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function mergeReferences(array $references, string $answer): array
+    {
+        return array_values(array_unique(array_merge($references, $this->extractReferencesFromText($answer))));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function extractReferencesFromText(string $answer): array
+    {
+        preg_match_all('/\bCCC\s*\d+(?:-\d+)?\b|\b(?:John|Matthew|Luke|Mark|1 Corinthians|2 Corinthians|Romans|1 Thessalonians|2 Thessalonians|Galatians|Ephesians|Philippians|Colossians|1 Peter|2 Peter|1 John|2 John|3 John|Jude|Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Psalms?|Proverbs|Isaiah|Jeremiah|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi)\s+\d+:\d+(?:-\d+)?\b/i', $answer, $matches);
+
+        return array_values(array_unique(array_map(
+            static fn (string $match): string => trim(preg_replace('/\s+/', ' ', $match) ?? $match),
+            $matches[0] ?? []
+        )));
     }
 }
