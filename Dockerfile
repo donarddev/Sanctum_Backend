@@ -32,6 +32,10 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 # Copy Laravel project files
 COPY . .
 
+# Copy Docker entrypoint for deployment setup
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Install Laravel dependencies
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
@@ -43,4 +47,4 @@ RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cac
 EXPOSE 80
 
 # Start Apache in foreground
-CMD ["apache2-foreground"]
+CMD ["docker-entrypoint.sh"]
