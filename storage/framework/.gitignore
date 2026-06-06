@@ -1,4 +1,5 @@
-compiled.php
+*
+!.gitignorecompiled.php
 config.php
 down
 events.scanned.php

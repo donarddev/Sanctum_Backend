@@ -10,6 +10,32 @@ class AskCatechismService
 {
     private const REFUSAL_ANSWER = 'I can only answer questions related to Catholic faith, prayer, Scripture, sacraments, saints, and the Catechism of the Catholic Church.';
 
+    private const DEVELOPER_ANSWER = 'Sanctum was developed by Donard Osol Lleno, a Bachelor of Science in Computer Science student from North Eastern Mindanao State University – Main Campus. He served as the Developer and System Integrator of Sanctum, working on the Flutter mobile application, Laravel backend integration, user progress tracking, and Catholic-centered app features. For inquiries, he may be contacted through donardlleno3@gmail.com or dolleno@nemsu.edu.ph.';
+
+    private const DEVELOPER_KEYWORDS = [
+        'who developed sanctum',
+        'who developed this app',
+        'who created sanctum',
+        'who created this app',
+        'who made sanctum',
+        'who made this app',
+        'who built this app',
+        'who made this application',
+        'who is the developer',
+        'who is the creator',
+        'developer of sanctum',
+        'creator of sanctum',
+        'app developer',
+        'app creator',
+        'contact developer',
+        'developer contact',
+        'how can i contact the developer',
+        'tell me about the developer',
+        'tell me about the creator of sanctum',
+        'developer of this app',
+        'creator of this app',
+    ];
+
     private const CATHOLIC_KEYWORDS = [
         'catholic', 'church', 'god', 'jesus', 'christ', 'holy spirit', 'trinity',
         'bible', 'scripture', 'gospel', 'catechism', 'ccc', 'sacrament', 'eucharist',
@@ -78,6 +104,10 @@ class AskCatechismService
      */
     public function answer(string $question): array
     {
+        if ($this->isDeveloperQuestion($question)) {
+            return $this->getDeveloperResponse();
+        }
+
         if (! $this->isCatholicRelated($question)) {
             return [
                 'answer' => self::REFUSAL_ANSWER,
@@ -93,6 +123,36 @@ class AskCatechismService
             'answer' => $answer,
             'source' => 'ollama',
             'references' => $context['references'],
+        ];
+    }
+
+    private function isDeveloperQuestion(string $question): bool
+    {
+        $normalized = Str::of($question)
+            ->lower()
+            ->replaceMatches('/[^a-z0-9\s]/', ' ')
+            ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->toString();
+
+        foreach (self::DEVELOPER_KEYWORDS as $keyword) {
+            if (Str::contains($normalized, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array{answer: string, source: string, references: array<int, string>}
+     */
+    private function getDeveloperResponse(): array
+    {
+        return [
+            'answer' => self::DEVELOPER_ANSWER,
+            'source' => 'developer_profile',
+            'references' => [],
         ];
     }
 
